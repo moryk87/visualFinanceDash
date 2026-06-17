@@ -1,14 +1,25 @@
 # SubGrid
 
-A simple tool to visualize your subscription costs. See where your money goes each month through an interactive treemap.
+A static finance dashboard for visualizing income, expenses, savings, investments, and monthly free cashflow.
 
 ## What it does
 
-- Track your subscriptions (Netflix, Spotify, etc.)
-- View costs as a proportional grid so you can see which services eat up your budget
-- Import subscriptions from bank statements (CSV)
+- Track income, expenses, savings, and investments
+- View costs as a proportional treemap and beeswarm chart
+- Import recurring payments from bank statements (CSV)
 - Export your visualization as an image
 - Supports 38+ currencies
+
+## Deploy to GitHub Pages
+
+This repository includes a GitHub Actions workflow for GitHub Pages:
+
+1. Push the repository to GitHub.
+2. In GitHub, open **Settings > Pages**.
+3. Set **Source** to **GitHub Actions**.
+4. Push to the `main` branch, or run **Deploy to GitHub Pages** manually from the **Actions** tab.
+
+The workflow publishes only the static app files: `index.html`, `styles.css`, `js/`, `LICENSE`, and `.nojekyll`.
 
 ## How to use
 
