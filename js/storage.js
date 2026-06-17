@@ -7,18 +7,83 @@ function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      subs = JSON.parse(raw);
+      const data = JSON.parse(raw);
+
+      // Handle legacy format: { subscriptions: [...] }
+      if (data.subscriptions && !data.financeItems) {
+        financeItems = data.subscriptions.map(normalizeFinanceItem);
+      } else {
+        financeItems = (data.financeItems || []).map(normalizeFinanceItem);
+      }
+      assignMissingOrders();
     }
   } catch (err) {
-    // probably corrupted data, just start fresh
     console.warn("failed to load saved data:", err);
-    subs = [];
+    financeItems = [];
   }
 }
 
+function normalizeFinanceItem(item) {
+  const normalized = {
+    ...item,
+    id: item.id || Date.now().toString() + Math.random().toString(36).slice(2),
+    kind: item.kind || "outcome",
+    name: item.name || item.fullName || item.ticker || "",
+    amount: item.amount || item.price || 0,
+    currency: item.currency || "USD",
+    cycle: item.cycle || "Monthly",
+    color: item.color || randColor().id,
+    icon: item.icon || "ph:cube-bold",
+    date: item.date || "",
+    order: Number.isFinite(Number(item.order)) ? Number(item.order) : null
+  };
+
+  if (normalized.kind === "investment") {
+    normalized.owned = Number(item.owned ?? item.quantity) || 0;
+    normalized.manualPrice = Number(item.manualPrice) || 0;
+    normalized.marketCurrency = item.marketCurrency || normalized.currency;
+    normalized.fullName = item.fullName || normalized.name;
+    normalized.assetType = item.assetType || "stock";
+    normalized.investmentMode = item.investmentMode || (normalized.assetType === "crypto" ? "crypto" : "stock_etf");
+  }
+
+  if (normalized.kind === "outcome") {
+    normalized.url = item.url || "";
+    normalized.logoUrl = item.logoUrl || "";
+    normalized.iconMode = item.iconMode || (item.logoUrl ? "logo" : "manual");
+  }
+
+  if (normalized.kind === "saving") {
+    normalized.savingType = item.savingType || "savings_account";
+    normalized.currentBalance = Number(item.currentBalance) || 0;
+    normalized.balanceCurrency = item.balanceCurrency || normalized.currency;
+  }
+
+  return normalized;
+}
+
+function assignMissingOrders() {
+  const counters = {};
+  financeItems.forEach((item, index) => {
+    const kind = item.kind || "outcome";
+    if (!counters[kind]) counters[kind] = 0;
+    if (item.order === null || item.order === undefined || Number.isNaN(Number(item.order))) {
+      item.order = counters[kind] + index / 10000;
+    }
+    counters[kind] = Math.max(counters[kind], Number(item.order) + 1);
+  });
+  ["income", "outcome", "saving", "investment"].forEach(kind => {
+    financeItems
+      .filter(item => item.kind === kind)
+      .sort((a, b) => compareOrder(a, b))
+      .forEach((item, index) => { item.order = index; });
+  });
+}
+
 function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(subs));
-  renderList();
+  assignMissingOrders();
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ financeItems }));
+  renderItemList();
 }
 
 function loadCurrency() {
@@ -36,16 +101,17 @@ function saveCurrency(code) {
   selectedCurrency = code;
   localStorage.setItem(CURRENCY_KEY, code);
 
-  renderList();
-  if (step === 2) renderGrid();
+  renderItemList();
+  if (step === 3) setView(currentView);
 }
 
 function exportData() {
   const exportObj = {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     currency: selectedCurrency,
-    subscriptions: subs
+    pinnedDisplayCurrency: pinnedDisplayCurrency,
+    financeItems: financeItems
   };
 
   const jsonStr = JSON.stringify(exportObj, null, 2);
@@ -54,7 +120,7 @@ function exportData() {
 
   const link = document.createElement("a");
   link.href = blobUrl;
-  link.download = "subgrid-backup-" + new Date().toISOString().split("T")[0] + ".json";
+  link.download = "finance-dash-backup-" + new Date().toISOString().split("T")[0] + ".json";
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -72,50 +138,53 @@ function importData(evt) {
     try {
       const data = JSON.parse(e.target.result);
 
-      if (!data.subscriptions || !Array.isArray(data.subscriptions)) {
-        throw new Error("Invalid file format");
+      // Support both v1 (subscriptions) and v2 (financeItems) formats
+      let items = data.financeItems || [];
+      const isV1 = !data.financeItems && data.subscriptions && Array.isArray(data.subscriptions);
+
+      if (isV1) {
+        // Migrate v1 format
+        items = data.subscriptions.map(normalizeFinanceItem);
       }
 
-      for (let i = 0; i < data.subscriptions.length; i++) {
-        const sub = data.subscriptions[i];
-        if (!sub.id || !sub.name || typeof sub.price !== "number") {
-          throw new Error("Invalid subscription data");
-        }
+      if (!Array.isArray(items) || items.length === 0) {
+        throw new Error("Invalid file format: no items found");
       }
 
       let replaceExisting = true;
-      if (subs.length > 0) {
+      if (financeItems.length > 0) {
         replaceExisting = confirm(
-          "You have " + subs.length + " existing subscription(s).\n\n" +
-          "Click OK to replace them with " + data.subscriptions.length + " imported subscription(s).\n\n" +
+          "You have " + financeItems.length + " existing item(s).\n\n" +
+          "Click OK to replace them with " + items.length + " imported item(s).\n\n" +
           "Click Cancel to merge (add imported to existing)."
         );
       }
 
-      if (replaceExisting || subs.length === 0) {
-        subs = data.subscriptions;
+      if (replaceExisting || financeItems.length === 0) {
+        financeItems = items.map(normalizeFinanceItem);
       } else {
-        for (let i = 0; i < data.subscriptions.length; i++) {
-          const imported = data.subscriptions[i];
-          subs.push({
-            id: Date.now().toString() + Math.random().toString(36).slice(2),
-            name: imported.name,
-            price: imported.price,
-            currency: imported.currency || selectedCurrency || "USD",
-            cycle: imported.cycle,
-            url: imported.url || "",
-            color: imported.color
+        for (let i = 0; i < items.length; i++) {
+          const imported = normalizeFinanceItem(items[i]);
+          financeItems.push({
+            ...imported,
+            id: Date.now().toString() + Math.random().toString(36).slice(2)
           });
         }
       }
+      assignMissingOrders();
 
       if (data.currency && currencies[data.currency]) {
         saveCurrency(data.currency);
       }
 
+      if (data.pinnedDisplayCurrency) {
+        pinnedDisplayCurrency = data.pinnedDisplayCurrency;
+        updatePinnedCurrencyBadge();
+      }
+
       save();
       closeSettings();
-      alert("Successfully imported " + data.subscriptions.length + " subscription(s)!");
+      alert("Successfully imported " + items.length + " item(s)!");
 
     } catch (err) {
       alert("Failed to import: " + err.message);

@@ -485,14 +485,15 @@ function addSelectedSubscriptions() {
 
   for (let i = 0; i < toAdd.length; i++) {
     const sub = toAdd[i];
-    subs.push({
+    financeItems.push({
       id: Date.now().toString() + Math.random().toString(36).slice(2),
+      kind: "outcome",
       name: cleanSubscriptionName(sub.name),
-      price: sub.price,
+      amount: sub.price,
       currency: selectedCurrency,
       cycle: sub.cycle,
-      url: "",
-      color: randColor().id
+      color: randColor().id,
+      icon: "ph:cube-bold"
     });
   }
 
@@ -500,7 +501,7 @@ function addSelectedSubscriptions() {
   closeBankImport();
 
   const plural = toAdd.length > 1 ? "s" : "";
-  alert("Added " + toAdd.length + " subscription" + plural + "!");
+  alert("Added " + toAdd.length + " expense" + plural + "!");
 }
 
 // bank names are ugly like "NETFLIX.COM*PURCHASE" so clean them up

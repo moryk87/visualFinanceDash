@@ -31,14 +31,48 @@ function hideModal() {
 }
 
 function openModal() {
+  openModalForKind(step === 1 ? "income" : "outcome");
+}
+
+function openModalForKind(kind) {
   document.getElementById("sub-form").reset();
   document.getElementById("entry-id").value = "";
   document.getElementById("sub-currency").value = selectedCurrency;
-  updateFavicon("");
+  document.getElementById("logo-url").value = "";
+  document.getElementById("icon-mode").value = "manual";
   pickColor(randColor().id);
 
-  document.getElementById("modal-title").innerText = "Add Subscription";
-  document.querySelector("#sub-form button[type='submit']").innerText = "Save Item";
+  const defaultKind = kind || (step === 1 ? "income" : "outcome");
+  setFormKind(defaultKind);
+
+  // Reset icon picker
+  document.getElementById("selected-icon").value = "ph:cube-bold";
+  pickIcon("ph:cube-bold");
+
+  // Reset investment fields (just in case)
+  const tickerEl = document.getElementById("ticker");
+  if (tickerEl) tickerEl.value = "";
+  const ownedEl = document.getElementById("owned");
+  if (ownedEl) ownedEl.value = "";
+  const savingTypeEl = document.getElementById("saving-type");
+  if (savingTypeEl) savingTypeEl.value = "savings_account";
+  const savingBalanceEl = document.getElementById("saving-current-balance");
+  if (savingBalanceEl) savingBalanceEl.value = "";
+  const savingBalanceCurrencyEl = document.getElementById("saving-balance-currency");
+  if (savingBalanceCurrencyEl) savingBalanceCurrencyEl.value = selectedCurrency;
+  const urlEl = document.getElementById("url");
+  if (urlEl) urlEl.value = "";
+  if (typeof clearInvestmentMetadata === "function") clearInvestmentMetadata(false);
+  if (typeof hideManualInvestmentFields === "function") hideManualInvestmentFields();
+  if (typeof setInvestmentMode === "function" && defaultKind === "investment") setInvestmentMode("stock_etf");
+  if (typeof updateExpenseLogoPreview === "function") updateExpenseLogoPreview("", "");
+
+  if (typeof applySavingTypePreset === "function" && defaultKind === "saving") applySavingTypePreset("savings_account");
+
+  const kindLabels = { income: "Income", outcome: "Expense", investment: "Investment", saving: "Savings" };
+  const stepLabel = kindLabels[defaultKind] || "Item";
+  document.getElementById("modal-title").innerText = "Add " + stepLabel;
+  document.querySelector("#sub-form button[type='submit']").innerText = "Add " + stepLabel;
 
   showModal();
 }
@@ -54,16 +88,28 @@ function openModalWithPreset(presetIdx) {
   document.getElementById("sub-form").reset();
   document.getElementById("entry-id").value = "";
   document.getElementById("sub-currency").value = selectedCurrency;
+  document.getElementById("logo-url").value = preset.domain ? getLogoDevUrl(preset.domain) : "";
+  document.getElementById("icon-mode").value = preset.domain ? "logo" : "manual";
   document.getElementById("name").value = preset.name;
   document.getElementById("price").value = preset.price;
-  document.getElementById("cycle").value = preset.cycle;
-  document.getElementById("url").value = preset.domain;
+  document.getElementById("cycle").value = preset.cycle || "Monthly";
+  const urlEl = document.getElementById("url");
+  if (urlEl) urlEl.value = preset.domain || "";
+  if (typeof updateExpenseLogoPreview === "function") {
+    updateExpenseLogoPreview(document.getElementById("logo-url").value, preset.domain || "");
+  }
 
-  updateFavicon(preset.domain);
-  pickColor(preset.color);
+  pickColor(preset.color || randColor().id);
 
-  document.getElementById("modal-title").innerText = "Add Subscription";
-  document.querySelector("#sub-form button[type='submit']").innerText = "Save Item";
+  // Use icon from preset, fallback to ph:cube-bold
+  const icon = preset.icon || "ph:cube-bold";
+  document.getElementById("selected-icon").value = icon;
+  pickIcon(icon);
+
+  setFormKind("outcome");
+
+  document.getElementById("modal-title").innerText = "Add Expense";
+  document.querySelector("#sub-form button[type='submit']").innerText = "Add Expense";
 
   showModal();
 }
@@ -74,6 +120,7 @@ const settingsPanel = document.getElementById("settings-panel");
 const settingsInner = settingsPanel ? settingsPanel.querySelector("div") : null;
 
 function openSettings() {
+  if (typeof initMarketDataSettings === "function") initMarketDataSettings();
   settingsBackdrop.classList.remove("hidden");
   settingsPanel.classList.remove("hidden");
 
@@ -224,11 +271,11 @@ function renderPresetsBrowserList(presetsToShow) {
     for (let i = 0; i < items.length; i++) {
       const p = items[i];
       const idx = presets.indexOf(p);
-      const logo = "https://img.logo.dev/" + p.domain + "?token=pk_KuI_oR-IQ1-fqpAfz3FPEw&size=100&retina=true&format=png";
+      const logo = getLogoDevUrl(p.domain);
 
       html += '<button onclick="selectPresetFromBrowser(' + idx + ')" ';
       html += 'class="flex items-center gap-3 rounded-xl border border-slate-100 bg-white p-3 text-left shadow-sm transition-all hover:border-indigo-200 hover:shadow-md active:scale-[0.98]">';
-      html += '<img src="' + logo + '" class="h-10 w-10 rounded-lg object-contain shrink-0" crossorigin="anonymous" alt="' + p.name + '">';
+      html += '<img src="' + logo + '" class="h-10 w-10 rounded-lg object-contain shrink-0 bg-white p-1" referrerpolicy="no-referrer" alt="">';
       html += '<div class="min-w-0 flex-1">';
       html += '<div class="font-semibold text-slate-900 text-sm truncate">' + p.name + '</div>';
       html += '<div class="text-xs text-slate-500">$' + p.price + '/mo</div>';

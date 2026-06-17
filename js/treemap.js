@@ -156,53 +156,95 @@ class Treemap {
 
 function renderGrid() {
   const gridEl = document.getElementById("bento-grid");
-  const totalDisplay = document.getElementById("step-2-total");
-  const yearlyDisplay = document.getElementById("step-2-yearly");
+  if (!gridEl) return;
 
-  let monthlyTotal = 0;
+  const displayCurr = getDisplayCurrency();
+  const totals = getTotals(displayCurr);
+  const incomeTotal = totals.income;
+  const outcomeTotal = totals.outcome;
+  const investmentMonthlyTotal = totals.investment;
+  const savingMonthlyTotal = totals.saving;
+
+  // Build items array with kind info
   const items = [];
+  const visibleItems = getFilteredVisualizationItems();
 
-  for (let i = 0; i < subs.length; i++) {
-    const sub = subs[i];
-    const monthlyCost = toMonthly(sub);
-    monthlyTotal += monthlyCost;
+  for (let i = 0; i < visibleItems.length; i++) {
+    const item = visibleItems[i];
+    const monthlyCost = getMonthlyInCurrency(item, displayCurr);
 
     items.push({
-      id: sub.id,
-      name: sub.name,
-      url: sub.url,
-      color: sub.color,
-      price: sub.price,
-      currency: sub.currency,
-      cycle: sub.cycle,
-      cost: monthlyCost
+      id: item.id,
+      name: item.name,
+      kind: item.kind,
+      icon: item.icon || "ph:cube-bold",
+      logoUrl: item.logoUrl || "",
+      iconMode: item.iconMode || "manual",
+      color: item.color,
+      amount: item.amount,
+      currency: item.currency,
+      cycle: item.cycle,
+      cost: monthlyCost,
+      // Investment-specific
+      ticker: item.ticker,
+      fullName: item.fullName,
+      assetType: item.assetType,
+      owned: getItemOwned(item),
+      manualPrice: item.manualPrice,
+      marketCurrency: item.marketCurrency,
+      currentBalance: item.currentBalance,
+      balanceCurrency: item.balanceCurrency
     });
   }
 
+  // Update step 3 summary totals
+  const incomeEl = document.getElementById("step-3-income-total");
+  const outcomeEl = document.getElementById("step-3-outcome-total");
+  const investEl = document.getElementById("step-3-investment-total");
+  const savingEl = document.getElementById("step-3-saving-total");
+  const balanceEl = document.getElementById("step-3-balance");
+
+  if (incomeEl) incomeEl.innerText = formatCurrencyFor(incomeTotal, displayCurr, 0);
+  if (outcomeEl) outcomeEl.innerText = formatCurrencyFor(outcomeTotal, displayCurr, 0);
+  if (investEl) investEl.innerText = formatCurrencyFor(investmentMonthlyTotal, displayCurr, 0);
+  if (savingEl) savingEl.innerText = formatCurrencyFor(savingMonthlyTotal, displayCurr, 0);
+  if (balanceEl) balanceEl.innerText = formatCurrencyFor(incomeTotal - outcomeTotal - investmentMonthlyTotal - savingMonthlyTotal, displayCurr, 0);
+
+  const totalFlow = items.reduce(function(total, item) { return total + item.cost; }, 0);
+
   items.sort(function(a, b) { return b.cost - a.cost; });
 
-  totalDisplay.innerText = formatCurrency(monthlyTotal);
-  yearlyDisplay.innerText = formatCurrency(monthlyTotal * 12);
-
-  if (items.length === 0) {
-    gridEl.innerHTML = '<div class="flex items-center justify-center h-full text-slate-400">Add subscriptions to see visualization</div>';
+  if (items.length === 0 || totalFlow <= 0) {
+    gridEl.innerHTML = '<div class="flex items-center justify-center h-full text-slate-400">No ' + getStep3FilterLabel() + ' to show</div>';
     return;
   }
 
   const bounds = gridEl.getBoundingClientRect();
-  const gridWidth = bounds.width || 600;
-  const gridHeight = bounds.height || 450;
+  const safeInset = (bounds.width || 600) < 500 ? 8 : 12;
+  const gridWidth = Math.max(100, (bounds.width || 600) - safeInset * 2);
+  const gridHeight = Math.max(100, (bounds.height || 450) - safeInset * 2);
 
   const treemapData = [];
   for (let i = 0; i < items.length; i++) {
     treemapData.push({
       id: items[i].id,
       name: items[i].name,
-      url: items[i].url,
+      kind: items[i].kind,
+      icon: items[i].icon,
+      logoUrl: items[i].logoUrl,
+      iconMode: items[i].iconMode,
       color: items[i].color,
-      price: items[i].price,
+      amount: items[i].amount,
       currency: items[i].currency,
       cycle: items[i].cycle,
+      ticker: items[i].ticker,
+      fullName: items[i].fullName,
+      assetType: items[i].assetType,
+      owned: items[i].owned,
+      manualPrice: items[i].manualPrice,
+      marketCurrency: items[i].marketCurrency,
+      currentBalance: items[i].currentBalance,
+      balanceCurrency: items[i].balanceCurrency,
       cost: items[i].cost,
       val: items[i].cost,
       idx: i
@@ -216,8 +258,16 @@ function renderGrid() {
 
   for (let i = 0; i < cells.length; i++) {
     const cell = cells[i];
-    const percent = (cell.cost / monthlyTotal) * 100;
-    const colorPalette = getColor(cell.color);
+    const item = items[cell.idx];
+    const percent = (cell.cost / totalFlow) * 100;
+    const colorPalette = getColor(item.color);
+
+    // Kind border color
+    let borderStyle = "";
+    if (item.kind === "income") borderStyle = "border: 2px solid #22c55e;";
+    else if (item.kind === "outcome") borderStyle = "border: 2px solid #ef4444;";
+    else if (item.kind === "investment") borderStyle = "border: 2px solid #3b82f6;";
+    else if (item.kind === "saving") borderStyle = "border: 2px solid #0d9488;";
 
     const minDim = Math.min(cell.w, cell.h);
     const clampedPct = Math.max(3, Math.min(60, percent));
@@ -228,7 +278,6 @@ function renderGrid() {
     const innerWidth = cell.w - padding * 2;
     const innerHeight = cell.h - padding * 2;
 
-    // font sizes - these formulas took some trial and error to get right
     const maxPriceFont = Math.min(Math.floor(innerWidth * 0.16), Math.floor(innerHeight * 0.28));
     const priceFont = Math.max(10, Math.min(12 + (clampedPct / 60) * 36, maxPriceFont, 48));
     const titleFont = Math.max(8, Math.min(9 + (clampedPct / 60) * 15, priceFont * 0.55, 24));
@@ -238,18 +287,20 @@ function renderGrid() {
     const isTiny = minDim < 55 || (cell.w < 65 && cell.h < 65);
     const isSmall = minDim < 85 || cell.w < 95;
 
+    const formattedMonthly = formatCurrencyFor(item.cost, displayCurr, 0);
+
     let cellContent = "";
 
     if (isMicro) {
       const sz = Math.max(12, Math.min(iconSize, minDim * 0.5));
-      cellContent = '<div class="flex items-center justify-center h-full w-full">' + iconHtml(cell, "w-[" + sz + "px] h-[" + sz + "px]") + '</div>';
+      cellContent = '<div class="flex items-center justify-center h-full w-full">' + renderTreemapIcon(item, sz) + '</div>';
 
     } else if (isTiny) {
       const sz = Math.max(14, Math.min(iconSize, minDim * 0.4));
       const ps = Math.max(9, Math.min(priceFont, 13, innerWidth * 0.16));
       cellContent = '<div class="flex flex-col items-center justify-center h-full w-full gap-1">';
-      cellContent += iconHtml(cell, "w-[" + sz + "px] h-[" + sz + "px]");
-      cellContent += '<div class="font-bold text-slate-900" style="font-size:' + ps + 'px">' + formatOriginalMonthlyShort(cell) + '</div>';
+      cellContent += renderTreemapIcon(item, sz);
+      cellContent += '<div class="font-bold text-slate-900" style="font-size:' + ps + 'px">' + formattedMonthly + '</div>';
       cellContent += '</div>';
 
     } else if (isSmall) {
@@ -257,39 +308,66 @@ function renderGrid() {
       const ts = Math.max(8, Math.min(titleFont, 11, innerWidth * 0.12));
       const ps = Math.max(11, Math.min(priceFont, 18, innerWidth * 0.18));
 
+      const displayName = (item.kind === "investment" && item.ticker)
+        ? getItemDisplayName(item, 15)
+        : item.name;
+
       cellContent = '<div class="flex flex-col items-center justify-center h-full w-full gap-1 text-center">';
-      cellContent += iconHtml(cell, "w-[" + sz + "px] h-[" + sz + "px]");
+      cellContent += renderTreemapIcon(item, sz);
       cellContent += '<div class="min-w-0 w-full">';
-      cellContent += '<div class="font-semibold text-slate-900 treemap-cell-name" style="font-size:' + ts + 'px">' + cell.name + '</div>';
-      cellContent += '<div class="font-black text-slate-900" style="font-size:' + ps + 'px">' + formatOriginalMonthlyShort(cell) + '</div>';
+      cellContent += '<div class="font-semibold text-slate-900 treemap-cell-name" style="font-size:' + ts + 'px">' + displayName + '</div>';
+      cellContent += '<div class="font-black text-slate-900" style="font-size:' + ps + 'px">' + formattedMonthly + '</div>';
       cellContent += '</div></div>';
 
     } else {
       const showPercentBadge = cell.w > 80 && cell.h > 70;
       const showYearlyEstimate = cell.h > 130 && cell.w > 110 && percent > 8;
 
+      const displayName = (item.kind === "investment" && item.ticker)
+        ? getItemDisplayName(item, 20)
+        : item.name;
+
+      // For investments, show monthly + current value
+      let investmentInfo = "";
+      if (item.kind === "investment" && getItemOwned(item) && item.manualPrice) {
+        const currentVal = getPortfolioValueInCurrency(item, displayCurr);
+        investmentInfo = '<div class="text-xs font-medium text-blue-600 mt-1">Value: ' + formatCurrencyFor(currentVal, displayCurr, 0) + '</div>';
+      }
+      if (item.kind === "saving" && Number(item.currentBalance)) {
+        investmentInfo = '<div class="text-xs font-medium text-teal-600 mt-1">Saved: ' + formatCurrencyFor(Number(item.currentBalance), item.balanceCurrency || displayCurr, 0) + '</div>';
+      }
+
       cellContent = '<div class="flex justify-between items-start">';
-      cellContent += iconHtml(cell, "w-[" + iconSize + "px] h-[" + iconSize + "px]");
+      cellContent += renderTreemapIcon(item, iconSize);
       if (showPercentBadge) {
         cellContent += '<span class="text-[10px] font-bold bg-white/70 px-2 py-1 rounded-full text-slate-700">' + Math.round(percent) + '%</span>';
       }
       cellContent += '</div>';
       cellContent += '<div class="mt-auto min-w-0">';
-      cellContent += '<div class="font-bold text-slate-900 treemap-cell-name" style="font-size:' + titleFont + 'px">' + cell.name + '</div>';
-      cellContent += '<div class="font-black text-slate-900 tracking-tight leading-none" style="font-size:' + priceFont + 'px">' + formatOriginalMonthly(cell) + '</div>';
-      if (showYearlyEstimate) {
-        cellContent += '<div class="text-xs font-medium text-slate-500 mt-1">~' + formatOriginalYearlyShort(cell) + '/yr</div>';
+      cellContent += '<div class="font-bold text-slate-900 treemap-cell-name" style="font-size:' + titleFont + 'px">' + displayName + '</div>';
+      cellContent += '<div class="font-black text-slate-900 tracking-tight leading-none" style="font-size:' + priceFont + 'px">' + formattedMonthly + '</div>';
+      if (investmentInfo) {
+        cellContent += investmentInfo;
+      } else if (showYearlyEstimate) {
+        cellContent += '<div class="text-xs font-medium text-slate-500 mt-1">~' + formatCurrencyFor(item.cost * 12, displayCurr, 0) + '/yr</div>';
       }
       cellContent += '</div>';
     }
 
-    html += '<div class="treemap-cell" data-id="' + cell.id + '" style="left:' + cell.x + 'px;top:' + cell.y + 'px;width:' + cell.w + 'px;height:' + cell.h + 'px;border-radius:' + borderRadius + 'px">';
+    html += '<div class="treemap-cell" data-id="' + cell.id + '" style="left:' + (cell.x + safeInset) + 'px;top:' + (cell.y + safeInset) + 'px;width:' + cell.w + 'px;height:' + cell.h + 'px;border-radius:' + borderRadius + 'px;' + borderStyle + '">';
     html += '<div class="treemap-cell-inner" style="background:linear-gradient(135deg,' + colorPalette.bg + ' 0%,' + colorPalette.accent + ' 100%);padding:' + padding + 'px;border-radius:' + Math.max(4, borderRadius - 3) + 'px">';
     html += cellContent;
     html += '</div></div>';
   }
 
   gridEl.innerHTML = html;
+}
+
+function renderTreemapIcon(item, size) {
+  if (item.logoUrl && item.iconMode === "logo") {
+    return '<img src="' + escapeHtml(item.logoUrl) + '" alt="" class="shrink-0 rounded-lg object-contain bg-white p-1" style="width:' + size + 'px;height:' + size + 'px" referrerpolicy="no-referrer" />';
+  }
+  return '<span class="iconify text-slate-500 shrink-0" style="width:' + size + 'px;height:' + size + 'px" data-icon="' + escapeHtml(item.icon || "ph:cube-bold") + '"></span>';
 }
 
 async function exportAsImage() {
@@ -332,7 +410,7 @@ async function exportAsImage() {
 
     var downloadLink = document.createElement("a");
     downloadLink.href = pngUrl;
-    downloadLink.download = "subs-" + new Date().toISOString().split("T")[0] + ".png";
+    downloadLink.download = "finance-grid-" + new Date().toISOString().split("T")[0] + ".png";
     document.body.appendChild(downloadLink);
     downloadLink.click();
     downloadLink.remove();

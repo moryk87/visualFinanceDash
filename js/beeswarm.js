@@ -105,11 +105,12 @@ class Beeswarm {
 
 function renderBeeswarm() {
   const container = document.getElementById("beeswarm-container");
-  if (!container || !subs.length) {
+  const visibleItems = getFilteredVisualizationItems();
+  if (!container || !visibleItems.length) {
     if (container) {
       container.innerHTML = `
         <div class="flex items-center justify-center h-full text-slate-400">
-          <p>Add subscriptions to see the beeswarm plot</p>
+          <p>No ${getStep3FilterLabel()} to show</p>
         </div>
       `;
     }
@@ -121,8 +122,9 @@ function renderBeeswarm() {
   const height = rect.height || 600;
   const isMobile = width < 500;
   const padding = isMobile ? 20 : 40;
+  const displayCurr = getDisplayCurrency();
 
-  const items = subs.map(sub => ({ ...sub, cost: toMonthly(sub) }));
+  const items = visibleItems.map(item => ({ ...item, owned: getItemOwned(item), cost: getMonthlyInCurrency(item, displayCurr) }));
   const beeswarm = new Beeswarm(width, height, padding, isMobile);
   const positioned = beeswarm.layout(items);
 
@@ -130,13 +132,22 @@ function renderBeeswarm() {
   const minCost = Math.min(...costs);
   const maxCost = Math.max(...costs);
 
+  if (maxCost <= 0) {
+    container.innerHTML = `
+      <div class="flex items-center justify-center h-full text-slate-400">
+        <p>Add non-zero monthly values to see the beeswarm plot</p>
+      </div>
+    `;
+    return;
+  }
+
   let html = `
     <div class="absolute left-4 right-4 sm:left-10 sm:right-10 top-1/2 h-0.5 bg-slate-200 -translate-y-1/2"></div>
     <div class="absolute left-4 sm:left-10 top-1/2 mt-6 sm:mt-8 text-[10px] sm:text-xs text-slate-400 font-medium">
-      ${formatCurrencyShort(minCost)}
+      ${formatCurrencyFor(minCost, displayCurr, 0)}
     </div>
     <div class="absolute right-4 sm:right-10 top-1/2 mt-6 sm:mt-8 text-[10px] sm:text-xs text-slate-400 font-medium">
-      ${formatCurrencyShort(maxCost)}
+      ${formatCurrencyFor(maxCost, displayCurr, 0)}
     </div>
     <div class="absolute left-1/2 -translate-x-1/2 bottom-2 sm:bottom-4 text-[10px] sm:text-xs text-slate-500 font-semibold uppercase tracking-wider">
       Monthly Cost
@@ -146,10 +157,26 @@ function renderBeeswarm() {
   positioned.forEach(item => {
     const color = getColor(item.color);
     const size = item.radius * 2;
-    const domain = extractDomain(item.url);
-    const logoUrl = domain
-      ? `https://img.logo.dev/${domain}?token=pk_KuI_oR-IQ1-fqpAfz3FPEw&size=100&retina=true&format=png`
-      : null;
+
+    // Kind border color
+    let borderColor;
+    if (item.kind === "income") borderColor = "#22c55e";
+    else if (item.kind === "outcome") borderColor = "#ef4444";
+    else if (item.kind === "saving") borderColor = "#0d9488";
+    else borderColor = "#3b82f6";
+
+    // For investments, show current value in tooltip
+    let investmentInfo = "";
+    if (item.kind === "investment" && getItemOwned(item) && item.manualPrice) {
+      const currentVal = getPortfolioValueInCurrency(item, displayCurr);
+      investmentInfo = '<div class="text-blue-300">Value: ' + formatCurrencyFor(currentVal, displayCurr, 0) + '</div>';
+    }
+    if (item.kind === "saving" && Number(item.currentBalance)) {
+      investmentInfo = '<div class="text-teal-200">Saved: ' + formatCurrencyFor(Number(item.currentBalance), item.balanceCurrency || displayCurr, 0) + '</div>';
+    }
+    const iconHtml = item.logoUrl && item.iconMode === "logo"
+      ? `<img src="${escapeHtml(item.logoUrl)}" alt="" class="object-contain rounded-full bg-white p-1" style="width:${size*0.52}px;height:${size*0.52}px" referrerpolicy="no-referrer" />`
+      : `<span class="iconify text-slate-500" style="width:${size*0.4}px;height:${size*0.4}px" data-icon="${escapeHtml(item.icon || "ph:cube-bold")}"></span>`;
 
     html += `
       <div
@@ -159,17 +186,15 @@ function renderBeeswarm() {
       >
         <div
           class="w-full h-full rounded-full shadow-md sm:shadow-lg transition-all duration-200 hover:scale-110 hover:shadow-xl flex items-center justify-center overflow-hidden"
-          style="background: linear-gradient(135deg, ${color.bg} 0%, ${color.accent} 100%); border: 2px solid ${color.accent};"
+          style="background: linear-gradient(135deg, ${color.bg} 0%, ${color.accent} 100%); border: 2px solid ${borderColor};"
         >
-          ${logoUrl
-            ? `<img src="${logoUrl}" alt="${item.name}" class="w-3/4 h-3/4 object-contain rounded-sm sm:rounded-md" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><span class="text-[10px] sm:text-sm font-bold hidden items-center justify-center" style="color: ${color.accent};">${item.name.charAt(0)}</span>`
-            : `<span class="text-[10px] sm:text-sm font-bold" style="color: ${color.accent};">${item.name.charAt(0)}</span>`
-          }
+          ${iconHtml}
         </div>
         <div class="beeswarm-tooltip absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
           <div class="bg-slate-900 text-white text-[10px] sm:text-xs rounded-lg px-2 py-1.5 sm:px-3 sm:py-2 whitespace-nowrap shadow-xl">
-            <div class="font-semibold">${item.name}</div>
-            <div class="text-slate-300">${formatCurrency(item.cost)}/mo</div>
+            <div class="font-semibold">${getItemDisplayName(item)}</div>
+            <div class="text-slate-300 capitalize">${item.kind}: ${formatCurrencyFor(item.cost, displayCurr)}/mo</div>
+            ${investmentInfo}
           </div>
           <div class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900"></div>
         </div>
@@ -200,10 +225,10 @@ function renderBeeswarm() {
         } else {
           clearTimeout(tapTimer);
           tapCount = 0;
-          editSub(dot.dataset.id);
+          editItem(dot.dataset.id);
         }
       } else {
-        editSub(dot.dataset.id);
+        editItem(dot.dataset.id);
       }
     });
   });
